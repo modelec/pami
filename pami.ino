@@ -1,6 +1,6 @@
 #include <AccelStepper.h>
 #include <MultiStepper.h>
-#include <VL53L0X.h>
+#include <VL53L0X_mod.h>
 //POSITION-------------------------------------------------------------------------------------------
 void turnLeft(int angle);
 void turnLeft(int angle);
@@ -12,8 +12,8 @@ unsigned int step = 0;
 bool positionSet = false;
 unsigned int side = 0;  // 1 = left | 2 = right
 //#######################################PARAMETRES##################################################
-unsigned int robot = 0; // 0 = PAMI n°0 zone | 1 = PAMI n°1 demo | 2 = PAMI n°2 jardinière
-unsigned int enableTimer = false; // false = OFF | true = ON
+unsigned int robot = 2; // 0 = PAMI n°0 zone | 1 = PAMI n°1 demo | 2 = PAMI n°2 jardinière
+unsigned int enableTimer = true; // false = OFF | true = ON
 //####################################################################################################
 //TIMER----------------------------------------------------------------------------------------------
 //long int t1 = 0;
@@ -23,17 +23,20 @@ long int timeMatch = 0;
 // The value will quickly become too large for an int to store
 unsigned long previousMillis = 0;  // will store last time LED was updated
 // constants won't change:
-const long interval = 700;  // interval at which to blink (milliseconds)
+const long interval = 500;  // interval at which to blink (milliseconds)
 
 //LASER----------------------------------------------------------------------------------------------
 // The number of sensors in your system.
 const uint8_t sensorCount = 2;
 // The Arduino pin connected to the XSHUT pin of each sensor.
 const uint8_t xshutPins[sensorCount] = { 4, 7 };
-VL53L0X sensors[sensorCount];
+VL53L0X_mod sensors[sensorCount];
 
-volatile unsigned int sensorLeft = 65535;
-volatile unsigned int sensorRight = 65535;
+uint16_t sensorLeftNew = 65535;
+uint16_t sensorRightNew = 65535;
+
+uint16_t sensorLeft = 65535;
+uint16_t sensorRight = 65535;
 
 //MOTEURS--------------------------------------------------------------------------------------------
 // Configuration des broches pour le moteur X
@@ -54,7 +57,7 @@ volatile unsigned int sensorRight = 65535;
 #define RPM 50           // Vitesse de rotation en tours par minute
 #define MICROSTEPS 16    // Configuration du microstepping (1/16 de pas)
 #define WHEEL_DIAMETER_MM 62   // Diamètre des roues en millimètres
-#define WHEEL_DISTANCE_MM 108  // Distance entre les deux roues en millimètres
+#define WHEEL_DISTANCE_MM 107.75  // Distance entre les deux roues en millimètres
 
 // Définition des objets AccelStepper pour chaque moteur
 AccelStepper stepperX(AccelStepper::DRIVER, X_STEP_PIN, X_DIR_PIN);
@@ -62,6 +65,8 @@ AccelStepper stepperY(AccelStepper::DRIVER, Y_STEP_PIN, Y_DIR_PIN);
 
 // Créer un objet MultiStepper pour synchroniser les moteurs
 MultiStepper multiStepper;
+
+long positions[2];
 //TIRETTE----------------------------------------------------------------------------------------------
 const int TIRETTE = 13;
 int etat = 0;
@@ -103,9 +108,9 @@ void setup() {
     // the default). To make it simple, we'll just count up from 0x2A.
     sensors[i].setAddress(0x30 + i);
 
-    //sensors[i].startContinuous(100);
+    //sensors[i].startContinuous(1000);
     //sensors[i].startContinuous();
-    sensors[i].setMeasurementTimingBudget(10000);
+    sensors[i].setMeasurementTimingBudget(20000);
   }
 
   Serial.println(F("GOOD : Sensors Initialized"));
@@ -135,8 +140,8 @@ void setup() {
   //CHOIX DU COTE----------------------------------------------------------------------------------------------
   delay(1000);
 
-  sensorLeft = sensors[1].readRangeSingleMillimeters();   //distance sensor left
-  sensorRight = sensors[0].readRangeSingleMillimeters();  //distance sensor right
+    sensorLeft = sensors[1].readRangeSingleMillimeters();   //distance sensor left
+    sensorRight = sensors[0].readRangeSingleMillimeters();  //distance sensor right
   
   while ((sensorLeft >= 30 || sensorLeft <= 10) && (sensorRight >= 45 || sensorRight <= 10)) {
     Serial.print("no side choose");
@@ -148,13 +153,13 @@ void setup() {
   delay(1000);
   if (sensorLeft <= 40) {
     side = 0;
-    Serial.println("GOOD : Left");/*
+    Serial.println("GOOD : Left");
     moveTo(-25);
     multiStepper.runSpeedToPosition(); // Attendre que les moteurs atteignent les positions cibles
     delay(500);
-    moveTo(25);
+    moveTo(13.5);
     multiStepper.runSpeedToPosition(); // Attendre que les moteurs atteignent les positions cibles
-    delay(500);*/
+    delay(500);
     if(robot == 0 || robot == 2){
       turnLeft(90);
       multiStepper.runSpeedToPosition(); // Attendre que les moteurs atteignent les positions cibles
@@ -162,13 +167,13 @@ void setup() {
     
   } else {
     side = 1;
-    Serial.println("GOOD : Right");/*
+    Serial.println("GOOD : Right");
     moveTo(-25);
     multiStepper.runSpeedToPosition(); // Attendre que les moteurs atteignent les positions cibles
     delay(500);
-    moveTo(25);
+    moveTo(13.5);
     multiStepper.runSpeedToPosition(); // Attendre que les moteurs atteignent les positions cibles
-    delay(500);*/
+    delay(500);
     if(robot == 0 || robot == 2){
       turnRight(90);
       multiStepper.runSpeedToPosition(); // Attendre que les moteurs atteignent les positions cibles
@@ -192,12 +197,23 @@ void setup() {
   timeMatch = millis();
   
   //TEST-------------------------------------------------------------------------------------------------
-  waitTime = millis();
-
+  waitTime = millis();/*
+  while(1){
+    if( sensors[1].readRangeNoBlocking(sensorLeftNew)){ //distance sensor left
+      sensorLeft = sensorLeftNew;
+    }
+    if(sensors[0].readRangeNoBlocking(sensorRightNew)){  //distance sensor right
+          sensorRight = sensorRightNew;
+    }
+    Serial.print(sensorLeft);
+    Serial.print(" | ");
+    Serial.println(sensorRight);
+  }*/
 }
 
 //LOOP==================================================================================================
 void loop() {
+
   if((millis() - timeMatch) >= (10000-500)){
     Serial.println("ERROR : FiIN DE MATCH");
     stepperX.stop();
@@ -206,45 +222,23 @@ void loop() {
     while(1);
 
   }
+
   unsigned int currentMillis = millis();
   if (currentMillis - previousMillis >= interval) {
-    //Serial.println("laser");
-    //multiStepper.run();
-
-    long positions[2];
-    positions[1]  = abs(stepperX.targetPosition() - stepperX.currentPosition());
-    positions[0]  = -abs(stepperY.targetPosition() - stepperY.currentPosition());
-
+    multiStepper.run();
     sensorLeft = sensors[1].readRangeSingleMillimeters();   //distance sensor left
+    multiStepper.run();
     sensorRight = sensors[0].readRangeSingleMillimeters();  //distance sensor right
-
-    if ((sensorLeft >= 10 && sensorLeft <= 100) || (sensorRight >= 10 && sensorRight <= 100)){
-    }else{
-      stepperX.stop();
-      stepperY.stop();
-      //editSpeed(5);
-      //turnLeft(-4);
-      //editSpeed(1);
-    }
-
-    stepperX.setCurrentPosition(0);
-    stepperY.setCurrentPosition(0);
-    multiStepper.moveTo(positions);
+    multiStepper.run();
     previousMillis = currentMillis;
   } 
-  /*
-  Serial.print(sensorLeft);
-  Serial.print('\t');
-  Serial.print(sensorRight);
-  Serial.println();
-  */
-  if ((sensorLeft >= 10 && sensorLeft <= 100) || (sensorRight >= 10 && sensorRight <= 100)) {
-    //Serial.println("GOOD : danger");
-  } else {
+
+  if (((sensorLeft >= 30 && sensorLeft <= 100) || (sensorRight >= 45 && sensorRight <= 100))){
+  }else {
     if (!positionSet) {
       //Serial.println("GOOD : positionSet");
       if(robot == 0){// PAMI n°0 qui va tt droit dans la première zone
-        Serial.println("PAMI n°0");
+        //Serial.println("PAMI n°0");
         if (side == 0) {
           switch (step) {
             case 0:
@@ -271,7 +265,7 @@ void loop() {
           }
         }
       }else if(robot == 1){// PAMI n°1 qui va dans la zone plus loin
-        Serial.println("PAMI n°1");
+        //Serial.println("PAMI n°1");
         if (side == 0) {
 
           switch (step) {
@@ -327,7 +321,7 @@ void loop() {
           }
         }
       }else if(robot == 2){// PAMI n°2 qui va dans la jardinière
-        Serial.println("PAMI n°2");
+        //Serial.println("PAMI n°2");
         if (side == 0) {
           switch (step) {
             case 0:
@@ -361,7 +355,7 @@ void loop() {
       positionSet = true;
     }
     if ((stepperX.distanceToGo() == 0 && stepperY.distanceToGo() == 0) || Serial.read() == 49) {
-      Serial.println("GOOD : point de passage");
+      //Serial.println("GOOD : point de passage");
       //delay(1000);
       step++;
       positionSet = false;
